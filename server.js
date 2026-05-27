@@ -13,6 +13,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
+app.use(express.static("public"));
 
 //
 app.get("/", (req, res) => {
@@ -25,7 +26,6 @@ app.get("/get-token", (req, res) => {
   const SECRET_KEY = process.env.VIDEOSDK_SECRET_KEY;
 
   const options = { expiresIn: "10m", algorithm: "HS256" };
-
   const payload = {
     apikey: API_KEY,
     permissions: ["allow_join", "allow_mod"], // also accepts "ask_join"

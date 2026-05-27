@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>join meeting</title>
+    <script src="https://cdn.jsdelivr.net/npm/@videosdk.live/js-sdk@0.9.0/videosdk.js"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+      .row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+      input { padding: 6px 8px; font-size: 14px; }
+      button { padding: 6px 14px; font-size: 14px; cursor: pointer; }
+      #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+      .tile { background: #000; border: 1px solid #333; border-radius: 8px; padding: 8px; }
+      .tile video { width: 100%; aspect-ratio: 16/9; background: #222; }
+      .tile .label { display: flex; justify-content: space-between; padding: 6px 4px; font-size: 13px; }
+      #log { font-family: monospace; font-size: 12px; color: #9a9; max-height: 120px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <input id="meetingId" placeholder="meetingId" size="20" />
+      <input id="name" placeholder="display name" value="me" size="14" />
+      <button id="join">Join</button>
+      <button id="leave" disabled>Leave</button>
+      <span id="status">idle</span>
+    </div>
+    <div id="tiles"></div>
+    <div id="log"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const log = (m) => { console.log(m); const d = document.createElement("div"); d.textContent = m; $("log").prepend(d); };
+      const params = new URLSearchParams(location.search);
+      if (params.get("meetingId")) $("meetingId").value = params.get("meetingId");
+      if (params.get("name"))      $("name").value      = params.get("name");
+
+      let meeting = null;
+
+      async function getToken() {
+        const r = await fetch("/get-token");
+        return (await r.json()).token;
+      }
+
+      function tileFor(p) {
+        let el = document.getElementById("tile-" + p.id);
+        if (el) return el;
+        el = document.createElement("div");
+        el.id = "tile-" + p.id;
+        el.className = "tile";
+        el.innerHTML = `
+          <video id="v-${p.id}" autoplay playsinline ${p.local ? "muted" : ""}></video>
+          <audio id="a-${p.id}" autoplay ${p.local ? "muted" : ""}></audio>
+          <div class="label"><span>${p.displayName || p.id}</span><span id="m-${p.id}"></span></div>`;
+        $("tiles").appendChild(el);
+        return el;
+      }
+
+      function attachStream(streamObj, p) {
+        const kind = streamObj.kind;
+        const el = document.getElementById((kind === "audio" ? "a-" : "v-") + p.id);
+        if (!el) return;
+        const ms = new MediaStream();
+        ms.addTrack(streamObj.track);
+        el.srcObject = ms;
+      }
+
+      function wireParticipant(p) {
+        tileFor(p);
+        p.streams.forEach((s) => attachStream(s, p));
+        p.on("stream-enabled", (s) => attachStream(s, p));
+        p.on("stream-disabled", (s) => {
+          const el = document.getElementById((s.kind === "audio" ? "a-" : "v-") + p.id);
+          if (el) el.srcObject = null;
+        });
+      }
+
+      $("join").onclick = async () => {
+        const meetingId = $("meetingId").value.trim();
+        const name      = $("name").value.trim() || "me";
+        if (!meetingId) return alert("enter meetingId");
+
+        $("status").textContent = "fetching token...";
+        const token = await getToken();
+        window.VideoSDK.config(token);
+
+        meeting = window.VideoSDK.initMeeting({
+          meetingId, name,
+          micEnabled: true, webcamEnabled: true,
+        });
+
+        meeting.on("meeting-joined", () => {
+          $("status").textContent = "joined " + meetingId;
+          $("join").disabled = true; $("leave").disabled = false;
+          // local participant
+          const me = meeting.localParticipant;
+          me.local = true;
+          wireParticipant(me);
+          // existing remotes
+          meeting.participants.forEach((p) => wireParticipant(p));
+        });
+        meeting.on("participant-joined", (p) => { log("peer joined: " + p.displayName); wireParticipant(p); });
+        meeting.on("participant-left",   (p) => { log("peer left: "   + p.displayName); document.getElementById("tile-" + p.id)?.remove(); });
+        meeting.on("error", (e) => log("error: " + JSON.stringify(e)));
+
+        meeting.join();
+      };
+
+      $("leave").onclick = () => {
+        meeting?.leave();
+        $("join").disabled = false; $("leave").disabled = true;
+        $("status").textContent = "left";
+        $("tiles").innerHTML = "";
+      };
+    </script>
+  </body>
+</html>
