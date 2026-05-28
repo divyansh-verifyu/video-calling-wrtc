@@ -9,3 +9,6 @@ coverage
 .vscode
 .idea
 .prettierrc
+package-lock.json
+.editorconfig
+vitest.config.js
